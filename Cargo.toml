@@ -1,0 +1,17 @@
+[package]
+name = "timer-table"
+version = "0.1.0"
+authors = ["RanolP <public.ranolp@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = { version = "0.4.15", features = ["serde"] }
+iced = { git = "https://github.com/hecrj/iced", rev = "fb015a85d22a7c4632bd251127a89259bfd0c346", features = ["async-std", "palette"] }
+log = "0.4.11"
+palette = { version = "0.5.0", features = ["serializing"] }
+pretty_env_logger = "0.4.0"
+rodio = { git = "https://github.com/RustAudio/rodio", rev = "3b733c60fb7da52f5aec03ebe4cce65837d196e0" }
+serde = { version = "1.0.115", features = ["derive"] }
+serde_json = "1.0.57"
