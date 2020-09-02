@@ -2,9 +2,11 @@ use crate::data::{Lecture, Theme, Timetable};
 use crate::font;
 use crate::sound::play_bell;
 use chrono::prelude::*;
+use chrono::Duration;
 use iced::{
-    container, executor, time, Align, Application, Background, Color, Column, Command, Container,
-    Element, HorizontalAlignment, Length, ProgressBar, Row, Subscription, Text,
+    container, executor, scrollable, time, Align, Application, Background, Color, Column, Command,
+    Container, Element, HorizontalAlignment, Length, ProgressBar, Row, Scrollable, Subscription,
+    Text,
 };
 use std::cmp::Ordering;
 use std::time::Duration as StdDuration;
@@ -15,6 +17,7 @@ pub struct App {
     timetable: Timetable,
     theme: Theme,
     time_kind: TimeKind,
+    scroll: scrollable::State,
 }
 
 #[derive(Clone, PartialEq)]
@@ -62,6 +65,7 @@ impl Application for App {
                 timetable,
                 theme,
                 time_kind: TimeKind::Unknown,
+                scroll: Default::default(),
             },
             Command::none(),
         )
@@ -227,49 +231,118 @@ impl Application for App {
                 } => vec![prev, next],
                 _ => vec![],
             };
-            let mut row = Row::new().padding(32);
-            let max_lectures = self
+            let min_time = self
                 .timetable
                 .iter()
-                .map(|day_timetable| day_timetable.len())
+                .flat_map(|lecture_vec| lecture_vec.iter().map(|lecture| lecture.begin))
+                .min()
+                .expect("Should have one or more lectures");
+            let max_time = self
+                .timetable
+                .iter()
+                .flat_map(|lecture_vec| lecture_vec.iter().map(|lecture| lecture.end))
                 .max()
-                .expect("timetable always have 5 items");
-            for (x, day_timetable) in self.timetable.iter().enumerate() {
-                let mut column = Column::new().width(Length::Fill).height(Length::Fill);
-                for y in 0..max_lectures {
-                    let subject = day_timetable
-                        .get(y)
-                        .map(|lecture| lecture.subject.clone())
-                        .unwrap_or_else(|| String::new());
-                    let mut foreground = self
-                        .theme
-                        .get(&subject)
-                        .map(|cell_color| cell_color.foreground.clone().into())
-                        .unwrap_or_else(|| Color::BLACK);
+                .expect("Should have one or more lectures");
+            let should_show_time: Vec<_> = self
+                .timetable
+                .iter()
+                .flat_map(|lecture_vec| {
+                    lecture_vec
+                        .iter()
+                        .flat_map(|lecture| vec![lecture.begin, lecture.end].into_iter())
+                })
+                .collect();
 
-                    let mut background = self
-                        .theme
-                        .get(&subject)
-                        .map(|cell_color| cell_color.background.clone().into())
-                        .unwrap_or_else(|| Color::TRANSPARENT);
-                    if x != highlight_x {
-                        foreground.a *= 0.8;
-                        background.a *= 0.8;
-                    };
+            let mut every_five_minutes = Vec::new();
+            let mut curr = min_time.clone();
+            while curr <= max_time {
+                every_five_minutes.push(curr.clone());
+                curr += Duration::minutes(5);
+            }
+
+            let mut time_panel = Column::new();
+            for time in &every_five_minutes {
+                time_panel = time_panel.push(Text::new(if should_show_time.contains(&time) {
+                    time.format("%H:%M:%S").to_string()
+                } else {
+                    String::from(" ")
+                }));
+            }
+            let item_per_day = ((max_time - min_time).num_minutes() / 5 + 1) as f64;
+
+            let mut row = Row::new().spacing(16).push(time_panel);
+            for (x, day_timetable) in self.timetable.iter().enumerate() {
+                let mut column = Column::new()
+                    .width(Length::Fill)
+                    .height(Length::Units((item_per_day * 20.12) as u16))
+                    .push(Text::new("").height(Length::Units(8)));
+                let mut current_lecture = None::<Lecture>;
+                let mut n_five_minutes = 0;
+                let mut last_lecture_index = 0;
+
+                for time in &every_five_minutes {
+                    if let Some(lecture) = &current_lecture {
+                        if lecture.end <= *time {
+                            let subject = lecture.subject.clone();
+                            let mut foreground = self
+                                .theme
+                                .get(&subject)
+                                .map(|cell_color| cell_color.foreground.clone().into())
+                                .unwrap_or_else(|| Color::BLACK);
+
+                            let mut background = self
+                                .theme
+                                .get(&subject)
+                                .map(|cell_color| cell_color.background.clone().into())
+                                .unwrap_or_else(|| Color::TRANSPARENT);
+                            if x != highlight_x {
+                                foreground.a *= 0.8;
+                                background.a *= 0.8;
+                            };
+                            column = column.push(
+                                Container::new(Text::new(subject).size(48).color(foreground))
+                                    .style(TableCell(
+                                        Some(Background::Color(background)),
+                                        if x == highlight_x
+                                            && highlight_y.contains(&last_lecture_index)
+                                        {
+                                            3
+                                        } else {
+                                            1
+                                        },
+                                    ))
+                                    .width(Length::Fill)
+                                    .height(Length::FillPortion(n_five_minutes))
+                                    .center_x()
+                                    .center_y(),
+                            );
+                            current_lecture = None;
+                            n_five_minutes = 0;
+                            last_lecture_index += 1;
+                        }
+                    } else {
+                        let lecture = day_timetable.get(last_lecture_index).cloned();
+                        if let Some(lecture) = lecture {
+                            if lecture.begin <= *time {
+                                if n_five_minutes > 0 {
+                                    column = column.push(
+                                        Container::new(Text::new(""))
+                                            .width(Length::Fill)
+                                            .height(Length::FillPortion(n_five_minutes)),
+                                    );
+                                }
+                                current_lecture = Some(lecture);
+                                n_five_minutes = 0;
+                            }
+                        }
+                    }
+                    n_five_minutes += 1;
+                }
+                if n_five_minutes > 0 {
                     column = column.push(
-                        Container::new(Text::new(subject).size(48).color(foreground))
-                            .style(TableCell(
-                                Some(Background::Color(background)),
-                                if x == highlight_x && highlight_y.contains(&y) {
-                                    3
-                                } else {
-                                    1
-                                },
-                            ))
+                        Container::new(Text::new(""))
                             .width(Length::Fill)
-                            .height(Length::Fill)
-                            .center_x()
-                            .center_y(),
+                            .height(Length::FillPortion(n_five_minutes)),
                     );
                 }
                 row = row.push(column);
@@ -285,7 +358,14 @@ impl Application for App {
             .push(time_message)
             .push(progress_bar)
             .push(progress_bar_real_time)
-            .push(timetable)
+            .push(
+                Container::new(
+                    Scrollable::new(&mut self.scroll)
+                        .padding(32)
+                        .push(timetable),
+                )
+                .padding(4),
+            )
             .into()
     }
 }

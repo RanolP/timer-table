@@ -22,11 +22,6 @@ fn main() {
         .expect("Can't read ./config/theme.json as Theme format.");
 
     App::run(Settings {
-        window: window::Settings {
-            size: (800, 600),
-            resizable: false,
-            ..Default::default()
-        },
         default_font: match font::TEXT {
             Font::Default => None,
             Font::External { bytes, .. } => Some(bytes),
